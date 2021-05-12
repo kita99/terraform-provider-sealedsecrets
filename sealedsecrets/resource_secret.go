@@ -124,7 +124,7 @@ func shouldCreateSealedSecret(d *schema.ResourceData) bool {
 }
 
 func createSealedSecret(d *schema.ResourceData, mainCmd *Cmd, sealedSecretPath string) error {
-	secrets := d.Get("secrets").(string)
+	secrets := d.Get("secrets").(map[string]interface {})
 
 	ssDir := utils.GetDir(sealedSecretPath)
 	if !utils.PathExists(ssDir) {
@@ -152,11 +152,10 @@ func createSealedSecret(d *schema.ResourceData, mainCmd *Cmd, sealedSecretPath s
 
     controllerNameArg := fmt.Sprintf("%s=%s", "--controller-name", controllerName)
     controllerNamespaceArg := fmt.Sprintf("%s=%s", "--controller-namespace", controllerNamespace)
-	fetchCertArg := "--fetch-cert"
 	formatArg := fmt.Sprintf("%s %s", "--format", "yaml")
 
 	return utils.ExecuteCmd(
         mainCmd.kubectl, "create", "secret", "generic", name, nsArg, typeArg, fromLiteralArg, dryRunArg, outputArg,
         "|",
-        mainCmd.kubeseal, controllerNameArg, controllerNamespaceArg, fetchCertArg, formatArg, ">", sealedSecretPath)
+        mainCmd.kubeseal, controllerNameArg, controllerNamespaceArg, formatArg, ">", sealedSecretPath)
 }
