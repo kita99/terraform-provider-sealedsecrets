@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 
-	"github.com/rockyhmchen/terraform-provider-sealedsecrets/utils"
+	"github.com/kita99/terraform-provider-sealedsecrets/utils"
 )
 
 func resourceSecret() *schema.Resource {
@@ -21,32 +21,32 @@ func resourceSecret() *schema.Resource {
 			"name": &schema.Schema{
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "TBA",
+				Description: "Name of the secret, must be unique",
 			},
 			"namespace": &schema.Schema{
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "TBA",
+				Description: "Namespace of the secret",
 			},
 			"type": &schema.Schema{
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "TBA",
+				Description: "The secret type (ex. Opaque)",
 			},
-			"secret_source": &schema.Schema{
+			"secrets": &schema.Schema{
+				Type:        schema.TypeMap,
+				Required:    true,
+				Description: "Key/value pairs to populate the secret",
+			},
+			"controller_name": &schema.Schema{
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "TBA",
+				Description: "Name of the Kubeseal controller in the cluster",
 			},
-			"sealed_secret_source": &schema.Schema{
+			"controller_namespace": &schema.Schema{
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "TBA",
-			},
-			"certificate": &schema.Schema{
-				Type:        schema.TypeString,
-				Required:    true,
-				Description: "TBA",
+				Description: "Namespace of the Kubeseal controller in the cluster",
 			},
 		},
 	}
@@ -56,21 +56,18 @@ func resourceSecretCreate(d *schema.ResourceData, m interface{}) error {
 	utils.Log("resourceSecretCreate")
 
 	mainCmd := m.(*Cmd)
+    sealedSecretPath := "/tmp/sealedsecret.yaml"
 
-	ssPath := d.Get("sealed_secret_source").(string)
-	if shouldCreateSealedSecret(ssPath) {
-		utils.Log("Sealed secret doesn't exist")
-		if err := createSealedSecret(d, mainCmd); err != nil {
-			return err
-		}
-	}
-	utils.Log(fmt.Sprintf("Sealed secret (%s) has been created\n", ssPath))
+    if err := createSealedSecret(d, mainCmd, sealedSecretPath); err != nil {
+        return err
+    }
+	utils.Log(fmt.Sprintf("Sealed secret (%s) has been created\n", sealedSecretPath))
 
-	if err := utils.ExecuteCmd(mainCmd.kubectl, "apply", "-f", ssPath); err != nil {
+	if err := utils.ExecuteCmd(mainCmd.kubectl, "apply", "-f", sealedSecretPath); err != nil {
 		return err
 	}
 
-	d.SetId(utils.SHA256(utils.GetFileContent(ssPath)))
+	d.SetId(utils.SHA256(utils.GetFileContent(sealedSecretPath)))
 
 	return resourceSecretRead(d, m)
 }
@@ -83,18 +80,8 @@ func resourceSecretDelete(d *schema.ResourceData, m interface{}) error {
 	name := d.Get("name").(string)
 	ns := d.Get("namespace").(string)
 
-	if err := utils.ExecuteCmd(mainCmd.kubectl, "delete", "secret", name, "-n", ns); err != nil {
-		utils.Log("Failed to delete secret: " + name)
-	}
-
 	if err := utils.ExecuteCmd(mainCmd.kubectl, "delete", "SealedSecret", name, "-n", ns); err != nil {
 		utils.Log("Failed to delete sealed secret: " + name)
-	}
-
-	// delete sealed secrets file
-	ssPath := d.Get("sealed_secret_source").(string)
-	if err := os.Remove(ssPath); err != nil {
-		utils.Log("Failed to delete sealed secret file: " + ssPath)
 	}
 
 	d.SetId("")
@@ -105,17 +92,13 @@ func resourceSecretDelete(d *schema.ResourceData, m interface{}) error {
 func resourceSecretRead(d *schema.ResourceData, m interface{}) error {
 	utils.Log("resourceSecretRead")
 
-	ssPath := d.Get("sealed_secret_source").(string)
-	if shouldCreateSealedSecret(ssPath) {
-		d.SetId("")
-		return nil
-	}
+    name := d.Get("name").(string)
+    ns := d.Get("namespace").(string)
 
-	oldID := d.Id()
-	newID := utils.SHA256(utils.GetFileContent(ssPath))
-	if oldID != newID {
+	mainCmd := m.(*Cmd)
+	if err := utils.ExecuteCmd(mainCmd.kubectl, "get", "SealedSecret", name, "-n", ns); err != nil {
 		d.SetId("")
-		return nil
+        return nil
 	}
 
 	return nil
@@ -129,10 +112,6 @@ func resourceSecretUpdate(d *schema.ResourceData, m interface{}) error {
 	name := d.Get("name").(string)
 	ns := d.Get("namespace").(string)
 
-	if err := utils.ExecuteCmd(mainCmd.kubectl, "delete", "secret", name, "-n", ns); err != nil {
-		utils.Log(fmt.Sprintf("Failed to delete secret: %s.%s\n", ns, name))
-	}
-
 	if err := utils.ExecuteCmd(mainCmd.kubectl, "delete", "SealedSecret", name, "-n", ns); err != nil {
 		utils.Log(fmt.Sprintf("Failed to delete SealedSecret: %s.%s\n", ns, name))
 	}
@@ -140,27 +119,15 @@ func resourceSecretUpdate(d *schema.ResourceData, m interface{}) error {
 	return resourceSecretCreate(d, m)
 }
 
-func shouldCreateSealedSecret(ssPath string) bool {
-	return !utils.PathExists(ssPath)
+func shouldCreateSealedSecret(d *schema.ResourceData) bool {
+    // TODO: Implement me
+	return true
 }
 
-func createSealedSecret(d *schema.ResourceData, mainCmd *Cmd) error {
-	sPath := d.Get("secret_source").(string)
-	if !utils.PathExists(sPath) {
-		errMsg := "Could not find secret source"
-		utils.Log(errMsg)
-		return errors.New(errMsg)
-	}
+func createSealedSecret(d *schema.ResourceData, mainCmd *Cmd, sealedSecretPath string) error {
+	secrets := d.Get("secrets").(string)
 
-	cert := d.Get("certificate").(string)
-	if !utils.PathExists(cert) {
-		errMsg := "Could not find certificate"
-		utils.Log(errMsg)
-		return errors.New(errMsg)
-	}
-
-	ssPath := d.Get("sealed_secret_source").(string)
-	ssDir := utils.GetDir(ssPath)
+	ssDir := utils.GetDir(sealedSecretPath)
 	if !utils.PathExists(ssDir) {
 		utils.Log(fmt.Sprintf("Sealed secret directory (%s) doesn't exist\n", ssDir))
 		os.Mkdir(ssDir, os.ModePerm)
@@ -170,15 +137,27 @@ func createSealedSecret(d *schema.ResourceData, mainCmd *Cmd) error {
 	name := d.Get("name").(string)
 	ns := d.Get("namespace").(string)
 	sType := d.Get("type").(string)
+	controllerName := d.Get("controller_name").(string)
+	controllerNamespace := d.Get("controller_namespace").(string)
 
 	nsArg := fmt.Sprintf("%s=%s", "--namespace", ns)
 	typeArg := fmt.Sprintf("%s=%s", "--type", sType)
-	fromFileArg := fmt.Sprintf("%s=%s=%s", "--from-file", utils.GetFileName(sPath), sPath)
-	dryRunArg := "--dry-run"
+
+    fromLiteralArg := ""
+    for key, value := range secrets {
+        fromLiteralArg += fmt.Sprintf("%s=%s=%s ", "--from-literal", key, value)
+    }
+
+	dryRunArg := "--dry-run=client"
 	outputArg := fmt.Sprintf("%s=%s", "--output", "yaml")
 
-	certArg := fmt.Sprintf("%s %s", "--cert", cert)
+    controllerNameArg := fmt.Sprintf("%s=%s", "--controller-name", controllerName)
+    controllerNamespaceArg := fmt.Sprintf("%s=%s", "--controller-namespace", controllerNamespace)
+	fetchCertArg := "--fetch-cert"
 	formatArg := fmt.Sprintf("%s %s", "--format", "yaml")
 
-	return utils.ExecuteCmd(mainCmd.kubectl, "create", "secret", "generic", name, nsArg, typeArg, fromFileArg, dryRunArg, outputArg, " | ", mainCmd.kubeseal, ">", ssPath, certArg, formatArg)
+	return utils.ExecuteCmd(
+        mainCmd.kubectl, "create", "secret", "generic", name, nsArg, typeArg, fromLiteralArg, dryRunArg, outputArg,
+        "|",
+        mainCmd.kubeseal, controllerNameArg, controllerNamespaceArg, fetchCertArg, formatArg, ">", sealedSecretPath)
 }

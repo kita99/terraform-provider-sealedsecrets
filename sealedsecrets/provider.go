@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
-	"github.com/rockyhmchen/terraform-provider-sealedsecrets/utils"
+	"github.com/kita99/terraform-provider-sealedsecrets/utils"
 )
 
 type Cmd struct {

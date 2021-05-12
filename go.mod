@@ -1,6 +1,6 @@
-module github.com/rockyhmchen/terraform-provider-sealedsecrets
+module github.com/kita99/terraform-provider-sealedsecrets
 
-go 1.12
+go 1.16
 
 require (
 	github.com/hashicorp/hcl v1.0.0 // indirect
