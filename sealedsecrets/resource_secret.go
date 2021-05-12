@@ -1,7 +1,6 @@
 package sealedsecrets
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
