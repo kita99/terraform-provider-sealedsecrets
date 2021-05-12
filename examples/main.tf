@@ -6,14 +6,16 @@ provider "sealedsecrets" {
     kubeseal_bin = "/usr/local/bin/kubeseal"
 }
 
-resource "sealedsecrets_secret" "docker_pull" {
-  name      = "docker_pull"
+resource "sealedsecrets_secret" "my_secret" {
+  name = "my_secret"
   namespace = kubernetes_namespace.example_ns.metadata.0.name
-  type = "kubernetes.io/dockerconfigjson"
+  type = "Opaque"
 
-  secret_source = "${join("/", [var.keys_directory, "docker", "pull", ".dockerconfigjson"])}"
-  sealed_secret_source = "${join("/", [var.secret_directory, "docker-pull.yaml"])}"
-  certificate = "${join("/", [var.tmp_directory, "sealed-secrets", "tls.crt"])}"
+  secrets = {
+    key = "value"
+  }
+  controller_name = "sealed-secret-controller"
+  controller_namespace = "default"
 
   depends_on = [kubernetes_namespace.example_ns, var.sealed_secrets_controller_id]
 }
