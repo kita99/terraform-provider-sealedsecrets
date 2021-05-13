@@ -40,12 +40,12 @@ func resourceSecret() *schema.Resource {
 			"controller_name": &schema.Schema{
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "Name of the Kubeseal controller in the cluster",
+				Description: "Name of the SealedSecrets controller in the cluster",
 			},
 			"controller_namespace": &schema.Schema{
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "Namespace of the Kubeseal controller in the cluster",
+				Description: "Namespace of the SealedSecrets controller in the cluster",
 			},
 		},
 	}

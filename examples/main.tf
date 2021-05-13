@@ -1,13 +1,13 @@
 provider "sealedsecrets" {
-    // optional
+    # optional
     kubectl_bin = "/usr/local/bin/kubectl"
 
-    // optional
+    # optional
     kubeseal_bin = "/usr/local/bin/kubeseal"
 }
 
 resource "sealedsecrets_secret" "my_secret" {
-  name = "my_secret"
+  name = "my-secret"
   namespace = kubernetes_namespace.example_ns.metadata.0.name
   type = "Opaque"
 
