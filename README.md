@@ -45,11 +45,13 @@ resource "sealedsecrets_secret" "my_secret" {
 
 
 ### Requirements
+
 - `kubectl` is a command line interface for running commands against Kubernetes clusters
 - `kubeseal` utility uses asymmetric crypto to encrypt secrets that only the controller can decrypt. [install via Homebrew](https://github.com/bitnami-labs/sealed-secrets#homebrew)
 
 
 ### Argument Reference
+
 The following arguments are supported:
 - `name` - Name of the secret, must be unique.
 - `namespace` - Namespace defines the space within which name of the secret must be unique.
@@ -65,6 +67,7 @@ The following arguments are supported:
 ### Behind the scenes
 
 #### Create
+
 Takes resource inputs to form the below command, computes SHA256 hash of the resulting SealedSecret manifest and sets it as the resource id.
 
 ```bash
@@ -89,11 +92,9 @@ Checks if the SealedSecret object still exists in the cluster or if the SHA256 h
 
 #### Update
 
-Combines `Create` + `Delete`
+Combines `Create` + `Delete`.
 
 
 #### Delete
-First, deletes the secret and the sealed secret in Kubernetes by the commands `kubectl delete secret {sealedsecrets_secret.[resource].name} -n {sealedsecrets_secret.[resource].namespace}` and `kubectl delete SealedSecret {sealedsecrets_secret.[resource].name} -n {sealedsecrets_secret.[resource].namespace}`.
-Second, deletes the physical file of `sealed_secret_source`.
-Last, removes the stored state of `sealedsecrets` resource from Terraform state file
 
+Removes SealedSecret object from the cluster and deletes terraform state.
