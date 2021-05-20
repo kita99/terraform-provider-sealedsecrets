@@ -21,11 +21,11 @@ terraform {
 }
 
 provider "sealedsecrets" {
-  # optional
-  kubectl_bin = "/usr/local/bin/kubectl"
-
-  # optional
-  kubeseal_bin = "/usr/local/bin/kubeseal"
+  kubernetes {
+    host                   = data.aws_eks_cluster.cluster.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+    token                  = data.aws_eks_cluster_auth.cluster.token
+  }
 }
 
 resource "sealedsecrets_secret" "my_secret" {
@@ -34,12 +34,13 @@ resource "sealedsecrets_secret" "my_secret" {
   type = "Opaque"
 
   secrets = {
-    key = "value"
+    key1 = "value1"
+    key2 = "value2"
   }
   controller_name = "sealed-secret-controller"
   controller_namespace = "default"
 
-  depends_on = [kubernetes_namespace.example_ns, var.sealed_secrets_controller_id]
+  depends_on = [kubernetes_namespace.example_ns]
 }
 ```
 
