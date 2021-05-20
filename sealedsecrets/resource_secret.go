@@ -2,19 +2,26 @@ package sealedsecrets
 
 import (
 	"fmt"
-	"os"
+	"log"
+    b64 "encoding/base64"
+    "context"
+    "time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+    "github.com/cenkalti/backoff"
 
+	"github.com/kita99/terraform-provider-sealedsecrets/utils/kubeseal"
+	"github.com/kita99/terraform-provider-sealedsecrets/utils/kubectl"
 	"github.com/kita99/terraform-provider-sealedsecrets/utils"
 )
 
 func resourceSecret() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceSecretCreate,
-		Read:   resourceSecretRead,
-		Update: resourceSecretUpdate,
-		Delete: resourceSecretDelete,
+		CreateContext: resourceSecretCreate,
+		ReadContext:   resourceSecretRead,
+		UpdateContext: resourceSecretUpdate,
+		DeleteContext: resourceSecretDelete,
 
 		Schema: map[string]*schema.Schema{
 			"name": &schema.Schema{
@@ -47,115 +54,138 @@ func resourceSecret() *schema.Resource {
 				Required:    true,
 				Description: "Namespace of the SealedSecrets controller in the cluster",
 			},
+			"manifest": &schema.Schema{
+				Type:        schema.TypeString,
+				Computed:    true,
+				Description: "",
+			},
 		},
 	}
 }
 
-func resourceSecretCreate(d *schema.ResourceData, m interface{}) error {
-	utils.Log("resourceSecretCreate")
-
-	mainCmd := m.(*Cmd)
-    sealedSecretPath := "/tmp/sealedsecret.yaml"
-
-    if err := createSealedSecret(d, mainCmd, sealedSecretPath); err != nil {
-        return err
+func resourceSecretCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	log.Printf("resourceSecretCreate")
+    // 1. Generate manifest
+    sealedSecretManifest, err := createSealedSecret(d, m.(*kubectl.KubeProvider))
+    if err != nil {
+        return diag.FromErr(err)
     }
-	utils.Log(fmt.Sprintf("Sealed secret (%s) has been created\n", sealedSecretPath))
 
-	if err := utils.ExecuteCmd(mainCmd.kubectl, "apply", "-f", sealedSecretPath); err != nil {
-		return err
-	}
+    // 2. Apply against cluster
+    exponentialBackoffConfig := backoff.NewExponentialBackOff()
+    exponentialBackoffConfig.InitialInterval = 3 * time.Second
+    exponentialBackoffConfig.MaxInterval = 30 * time.Second
 
-	d.SetId(utils.SHA256(utils.GetFileContent(sealedSecretPath)))
+    if kubectlApplyRetryCount > 0 {
+        retryConfig := backoff.WithMaxRetries(exponentialBackoffConfig, kubectlApplyRetryCount)
+        retryErr := backoff.Retry(func() error {
+            resourceId, err := kubectl.ResourceKubectlManifestApply(ctx, sealedSecretManifest, true, m.(*kubectl.KubeProvider))
+            if err != nil {
+                log.Printf("[ERROR] creating manifest failed: %+v", err)
+            }
 
-	return resourceSecretRead(d, m)
+            d.SetId(resourceId)
+            return err
+        }, retryConfig)
+
+        if retryErr != nil {
+            return diag.FromErr(retryErr)
+        }
+    } else {
+        resourceId, err := kubectl.ResourceKubectlManifestApply(ctx, sealedSecretManifest, true, m.(*kubectl.KubeProvider))
+        if (err != nil) {
+            return diag.FromErr(err)
+        }
+
+        d.SetId(resourceId)
+    }
+
+    // 3. Call read
+	return resourceSecretRead(ctx, d, m)
 }
 
-func resourceSecretDelete(d *schema.ResourceData, m interface{}) error {
-	utils.Log("resourceSecretDelete")
+func resourceSecretDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	log.Printf("resourceSecretDelete")
 
-	mainCmd := m.(*Cmd)
-
-	name := d.Get("name").(string)
-	ns := d.Get("namespace").(string)
-
-	if err := utils.ExecuteCmd(mainCmd.kubectl, "delete", "SealedSecret", name, "-n", ns); err != nil {
-		utils.Log("Failed to delete sealed secret: " + name)
-	}
-
-	d.SetId("")
-
-	return nil
-}
-
-func resourceSecretRead(d *schema.ResourceData, m interface{}) error {
-	utils.Log("resourceSecretRead")
-
-    name := d.Get("name").(string)
-    ns := d.Get("namespace").(string)
-
-	mainCmd := m.(*Cmd)
-	if err := utils.ExecuteCmd(mainCmd.kubectl, "get", "SealedSecret", name, "-n", ns); err != nil {
-		d.SetId("")
+	manifest := d.Get("manifest").(string)
+    if manifest == "" {
         return nil
-	}
+    }
+
+    if err := kubectl.ResourceKubectlManifestDelete(ctx, manifest, true, m.(*kubectl.KubeProvider)); err != nil {
+        return diag.FromErr(err)
+    }
 
 	return nil
 }
 
-func resourceSecretUpdate(d *schema.ResourceData, m interface{}) error {
-	utils.Log("resourceSecretUpdate")
+func resourceSecretRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	log.Printf("resourceSecretRead")
 
-	mainCmd := m.(*Cmd)
+    manifest := d.Get("manifest").(string)
 
-	name := d.Get("name").(string)
-	ns := d.Get("namespace").(string)
+    if manifest == "" {
+        return nil
+    }
 
-	if err := utils.ExecuteCmd(mainCmd.kubectl, "delete", "SealedSecret", name, "-n", ns); err != nil {
-		utils.Log(fmt.Sprintf("Failed to delete SealedSecret: %s.%s\n", ns, name))
-	}
+    isGone, err := kubectl.ResourceKubectlManifestRead(ctx, manifest, m);
+    if err != nil {
+        return diag.FromErr(err)
+    }
 
-	return resourceSecretCreate(d, m)
+    if isGone {
+        d.SetId("")
+    }
+
+	return nil
 }
 
-func shouldCreateSealedSecret(d *schema.ResourceData) bool {
-    // TODO: Implement me
-	return true
+func resourceSecretUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	log.Printf("resourceSecretUpdate")
+
+    if d.HasChange("secrets") {
+        return resourceSecretCreate(ctx, d, m)
+    }
+
+	return nil
 }
 
-func createSealedSecret(d *schema.ResourceData, mainCmd *Cmd, sealedSecretPath string) error {
+func createSealedSecret(d *schema.ResourceData, kubeProvider *kubectl.KubeProvider) (string, error) {
+	log.Printf("createSealedSecret")
+
 	secrets := d.Get("secrets").(map[string]interface {})
-
-	ssDir := utils.GetDir(sealedSecretPath)
-	if !utils.PathExists(ssDir) {
-		utils.Log(fmt.Sprintf("Sealed secret directory (%s) doesn't exist\n", ssDir))
-		os.Mkdir(ssDir, os.ModePerm)
-	}
-	utils.Log(fmt.Sprintf("Sealed secret (%s) has been created\n", ssDir))
-
 	name := d.Get("name").(string)
-	ns := d.Get("namespace").(string)
-	sType := d.Get("type").(string)
+	namespace := d.Get("namespace").(string)
+
+    secretsBase64 := map[string]interface{}{}
+    for key, value := range secrets {
+        strValue := fmt.Sprintf("%v", value)
+        secretsBase64[key] = b64.StdEncoding.EncodeToString([]byte(strValue))
+    }
+
+    secretManifest, err := utils.GenerateSecretManifest(name, namespace, secretsBase64)
+	if err != nil {
+		return "", err
+	}
+
 	controllerName := d.Get("controller_name").(string)
 	controllerNamespace := d.Get("controller_namespace").(string)
 
-	nsArg := fmt.Sprintf("%s=%s", "--namespace", ns)
-	typeArg := fmt.Sprintf("%s=%s", "--type", sType)
+    rawCertificate, err := kubeseal.FetchCertificate(controllerName, controllerNamespace, kubeProvider)
+	if err != nil {
+		return "", err
+	}
+	defer rawCertificate.Close()
 
-    fromLiteralArg := ""
-    for key, value := range secrets {
-        fromLiteralArg += fmt.Sprintf("%s=%s=%s ", "--from-literal", key, value)
+    publicKey, err := kubeseal.ParseKey(rawCertificate)
+	if err != nil {
+		return "", err
+	}
+
+    sealedSecretManifest, err := kubeseal.Seal(secretManifest, publicKey, 0, false)
+    if err != nil {
+        return "", err
     }
 
-	dryRunArg := "--dry-run=client"
-	outputArg := fmt.Sprintf("%s=%s", "--output", "yaml")
-
-    controllerNameArg := fmt.Sprintf("%s=%s", "--controller-name", controllerName)
-    controllerNamespaceArg := fmt.Sprintf("%s=%s", "--controller-namespace", controllerNamespace)
-	formatArg := fmt.Sprintf("%s %s", "--format", "yaml")
-
-	return utils.ExecuteCmd(
-        mainCmd.kubectl, "create", "secret", "generic", name, nsArg, typeArg, fromLiteralArg, dryRunArg, outputArg,
-        "|",
-        mainCmd.kubeseal, controllerNameArg, controllerNamespaceArg, formatArg, ">", sealedSecretPath)
+    return sealedSecretManifest, nil
 }

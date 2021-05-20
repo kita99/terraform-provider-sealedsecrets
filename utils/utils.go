@@ -1,28 +1,32 @@
 package utils
 
 import (
+    "io"
 	"crypto/sha256"
 	"fmt"
-	"io/ioutil"
-	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
+	"bytes"
+    "text/template"
 )
 
-func PathExists(path string) bool {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// doesn't exist
-		return false
-	}
+var (
+    secretManifestTemplate = `
+apiVersion: v1
+data:
+  {{- range $key, $value := .Secrets }}
+  {{ $key }}: {{ $value -}}
+  {{ end }}
+kind: Secret
+metadata:
+  creationTimestamp: null
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+type: Opaque`
+)
 
-	return true
-}
-
-func Which(cmd string) string {
-	p, _ := exec.LookPath(cmd)
-	return p
+type SecretManifest struct {
+    Name string
+    Namespace string
+    Secrets map[string]interface {}
 }
 
 func SHA256(src string) string {
@@ -31,37 +35,34 @@ func SHA256(src string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func GetDir(filePath string) string {
-	dir, err := filepath.Abs(filepath.Dir(filePath))
-	if err != nil {
-		log.Fatal(err)
-	}
-	return dir
-}
+func GenerateSecretManifest(name string, namespace string, secrets map[string]interface {}) (io.Reader, error) {
+    secretManifestYAML := new(bytes.Buffer)
 
-func Log(message string) {
-	log.Printf("[sealed_secrets_provider] ================= %s\n", message)
-}
+    secretManifest := SecretManifest{
+        Name: name,
+        Namespace: namespace,
+        Secrets: secrets,
+    }
 
-func ExecuteCmd(cmds ...string) error {
-	cmd := strings.Join(cmds[:], " ")
-	Log("executing a command: " + cmd)
-	out, err := exec.Command("sh", "-c", cmd).Output()
+    t := template.Must(template.New("secretManifestTemplate").Parse(secretManifestTemplate))
+    err := t.Execute(secretManifestYAML, secretManifest)
 	if err != nil {
-		Log("Failed to execute the command: " + cmd)
-		return err
+		return nil, err
 	}
 
-	Log(string(out))
-	return nil
+    return secretManifestYAML, nil
 }
 
-func GetFileName(path string) string {
-	f, _ := os.Stat(path)
-	return f.Name()
+func ExpandStringSlice(s []interface{}) []string {
+	result := make([]string, len(s), len(s))
+	for k, v := range s {
+		// Handle the Terraform parser bug which turns empty strings in lists to nil.
+		if v == nil {
+			result[k] = ""
+		} else {
+			result[k] = v.(string)
+		}
+	}
+	return result
 }
 
-func GetFileContent(path string) string {
-	c, _ := ioutil.ReadFile(path)
-	return string(c)
-}
