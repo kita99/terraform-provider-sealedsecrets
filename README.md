@@ -1,7 +1,7 @@
 terraform-provider-sealedsecrets
 ================================
 
-This is a fork of [rockyhmchen's terrafrom-provider-sealedsecrets](https://github.com/rockyhmchen/terraform-provider-sealedsecrets).
+This is a fork of [rockyhmchen's terraform-provider-sealedsecrets](https://github.com/rockyhmchen/terraform-provider-sealedsecrets).
 
 The `sealedsecrets` provider helps you manage SealedSecret objects (`bitnami.com/v1alpha1`) from terraform. It generates a
 K8s Secret from the key/value pairs you give as input, encrypts it using `kubeseal` and finally applies it to the cluster.
@@ -15,7 +15,7 @@ terraform {
   required_providers {
     sealedsecrets = {
       source = "kita99/sealedsecrets"
-      version = "0.1.0"
+      version = "0.2.0"
     }
   }
 }
@@ -42,13 +42,6 @@ resource "sealedsecrets_secret" "my_secret" {
   depends_on = [kubernetes_namespace.example_ns, var.sealed_secrets_controller_id]
 }
 ```
-
-
-### Requirements
-
-- `kubectl` is a command line interface for running commands against Kubernetes clusters
-- `kubeseal` utility uses asymmetric crypto to encrypt secrets that only the controller can decrypt. [install via Homebrew](https://github.com/bitnami-labs/sealed-secrets#homebrew)
-
 
 ### Argument Reference
 
@@ -92,7 +85,7 @@ Checks if the SealedSecret object still exists in the cluster or if the SHA256 h
 
 #### Update
 
-Combines `Create` + `Delete`.
+Same as `Create`
 
 
 #### Delete
