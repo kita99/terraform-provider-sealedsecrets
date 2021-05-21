@@ -84,6 +84,7 @@ func resourceSecretCreate(ctx context.Context, d *schema.ResourceData, m interfa
                 log.Printf("[ERROR] creating manifest failed: %+v", err)
             }
 
+            d.Set("manifest", sealedSecretManifest)
             d.SetId(resourceId)
             return err
         }, retryConfig)
@@ -97,6 +98,7 @@ func resourceSecretCreate(ctx context.Context, d *schema.ResourceData, m interfa
             return diag.FromErr(err)
         }
 
+        d.Set("manifest", sealedSecretManifest)
         d.SetId(resourceId)
     }
 
