@@ -145,7 +145,13 @@ func resourceSecretRead(ctx context.Context, d *schema.ResourceData, m interface
 func resourceSecretUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	log.Printf("resourceSecretUpdate")
 
-    if d.HasChange("secrets") {
+    if d.HasChange("name") {
+        if err := resourceSecretDelete(ctx, d, m); err != nil {
+            return err
+        }
+    }
+
+    if d.HasChange("name") || d.HasChange("secrets")  {
         return resourceSecretCreate(ctx, d, m)
     }
 
