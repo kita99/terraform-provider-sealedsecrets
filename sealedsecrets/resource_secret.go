@@ -151,7 +151,7 @@ func resourceSecretUpdate(ctx context.Context, d *schema.ResourceData, m interfa
         }
     }
 
-    if d.HasChange("name") || d.HasChange("secrets")  {
+    if d.HasChange("name") || d.HasChange("secrets") || d.HasChange("type")  {
         return resourceSecretCreate(ctx, d, m)
     }
 
