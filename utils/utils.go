@@ -20,12 +20,13 @@ metadata:
   creationTimestamp: null
   name: {{ .Name }}
   namespace: {{ .Namespace }}
-type: Opaque`
+type: {{ .Type }}`
 )
 
 type SecretManifest struct {
     Name string
     Namespace string
+    Type string
     Secrets map[string]interface {}
 }
 
@@ -35,12 +36,13 @@ func SHA256(src string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func GenerateSecretManifest(name string, namespace string, secrets map[string]interface {}) (io.Reader, error) {
+func GenerateSecretManifest(name string, namespace string, _type string, secrets map[string]interface {}) (io.Reader, error) {
     secretManifestYAML := new(bytes.Buffer)
 
     secretManifest := SecretManifest{
         Name: name,
         Namespace: namespace,
+        Type: _type,
         Secrets: secrets,
     }
 

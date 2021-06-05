@@ -164,6 +164,7 @@ func createSealedSecret(d *schema.ResourceData, kubeProvider *kubectl.KubeProvid
 	secrets := d.Get("secrets").(map[string]interface {})
 	name := d.Get("name").(string)
 	namespace := d.Get("namespace").(string)
+	_type := d.Get("type").(string)
 
     secretsBase64 := map[string]interface{}{}
     for key, value := range secrets {
@@ -171,7 +172,7 @@ func createSealedSecret(d *schema.ResourceData, kubeProvider *kubectl.KubeProvid
         secretsBase64[key] = b64.StdEncoding.EncodeToString([]byte(strValue))
     }
 
-    secretManifest, err := utils.GenerateSecretManifest(name, namespace, secretsBase64)
+    secretManifest, err := utils.GenerateSecretManifest(name, namespace, _type, secretsBase64)
 	if err != nil {
 		return "", err
 	}
